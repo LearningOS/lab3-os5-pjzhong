@@ -1,4 +1,5 @@
 mod context;
+mod manager;
 mod pid;
 mod switch;
 mod task;
