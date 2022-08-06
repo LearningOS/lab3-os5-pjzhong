@@ -80,6 +80,12 @@ impl PhysPageNum {
     }
 }
 
+impl From<PhysPageNum> for PhysAddr {
+    fn from(v: PhysPageNum) -> Self {
+        Self(v.0 << PAGE_SIZE_BITS)
+    }
+}
+
 impl PhysAddr {
     pub fn get_mut<T>(&self) -> Option<&'static mut T> {
         unsafe { (self.0 as *mut T).as_mut() }
@@ -102,12 +108,6 @@ impl From<PhysAddr> for PhysPageNum {
     fn from(v: PhysAddr) -> Self {
         assert_eq!(v.page_offset(), 0);
         v.floor()
-    }
-}
-
-impl From<PhysPageNum> for PhysAddr {
-    fn from(v: PhysPageNum) -> Self {
-        Self(v.0 << PAGE_SIZE_BITS)
     }
 }
 

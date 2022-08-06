@@ -41,13 +41,11 @@ impl FrameAllocator for StackFrameAllocator {
     fn alloc(&mut self) -> Option<PhysPageNum> {
         if let Some(ppn) = self.recycled.pop() {
             Some(ppn.into())
+        } else if self.current == self.end {
+            None
         } else {
-            if self.current == self.end {
-                None
-            } else {
-                self.current += 1;
-                Some((self.current - 1).into())
-            }
+            self.current += 1;
+            Some((self.current - 1).into())
         }
     }
 
@@ -77,7 +75,9 @@ impl FrameTracker {
 }
 
 impl Drop for FrameTracker {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        frame_dealloc(self.ppn);
+    }
 }
 
 pub fn init_frame_allocator() {

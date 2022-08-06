@@ -359,12 +359,16 @@ impl MemorySet {
                     let dst_ppn = dst_ppn.ppn();
                     dst_ppn
                         .get_bytes_array()
-                        .copy_from_slice(&src_ppn.get_bytes_array());
+                        .copy_from_slice(src_ppn.get_bytes_array());
                 }
             }
         }
 
         memory_set
+    }
+
+    pub fn recyle_data_page(&mut self) {
+        self.areas.clear();
     }
 }
 

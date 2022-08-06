@@ -1,5 +1,7 @@
 use crate::config::MAX_SYSCALL_NUM;
+use crate::loader::get_app_data_by_name;
 use crate::mm::get_mut;
+use crate::mm::translated_str;
 use crate::task::add_task;
 use crate::task::current_task;
 use crate::task::current_user_token;
@@ -33,7 +35,7 @@ pub fn sys_yield() -> isize {
 
 pub fn sys_exit(exit_code: i32) -> ! {
     println!("[kernel] Application exited with code {}", exit_code);
-    exit_current_and_run_next();
+    exit_current_and_run_next(exit_code);
     panic!("Unreachable in sys_exit!");
 }
 
@@ -88,4 +90,15 @@ pub fn sys_fork() -> isize {
                        // add new task to sceduler
     add_task(new_task);
     new_pid as isize
+}
+
+pub fn sys_exec(path: *const u8) -> isize {
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    if let (Some(task), Some(data)) = (current_task(), get_app_data_by_name(path.as_str())) {
+        task.exec(data);
+        0
+    } else {
+        -1
+    }
 }

@@ -75,10 +75,6 @@ impl TaskControlBlock {
         self.pid.0
     }
 
-    pub fn exec(&self, elf_data: &[u8]) {
-        todo!()
-    }
-
     pub fn new(elf_data: &[u8]) -> Self {
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
         let trap_cx_ppn = memory_set
@@ -130,7 +126,7 @@ impl TaskControlBlock {
 
     pub fn fork(self: &Arc<TaskControlBlock>) -> Arc<TaskControlBlock> {
         let mut parent_inner = self.inner_exclusive_access();
-        let memory_set = MemorySet::from_existed_user(&&parent_inner.memory_set);
+        let memory_set = MemorySet::from_existed_user(&parent_inner.memory_set);
 
         let trap_cx_ppn = memory_set
             .translate(VirtAddr::from(TRAP_CONTEXT).into())
@@ -165,5 +161,28 @@ impl TaskControlBlock {
         trap_cx.kernel_sp = kernel_stack_top;
 
         task_control_block
+    }
+
+    pub fn exec(&self, elf_data: &[u8]) {
+        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+        let trap_cx_ppn = memory_set
+            .translate(VirtAddr::from(TRAP_CONTEXT).into())
+            .unwrap()
+            .ppn();
+
+        let mut inner = self.inner_exclusive_access();
+        //substitute meory_set
+        inner.memory_set = memory_set;
+        // update trap_cx ppn
+        inner.trap_cx_ppn = trap_cx_ppn;
+
+        let trap_cx = inner.get_trap_cx();
+        *trap_cx = TrapContext::app_init_context(
+            entry_point,
+            user_sp,
+            KERNEL_SPACE.lock().token(),
+            self.kernel_stack.get_top(),
+            trap_handler as usize,
+        )
     }
 }

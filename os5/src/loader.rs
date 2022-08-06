@@ -48,8 +48,9 @@ lazy_static! {
     };
 }
 
-pub fn get_app_data_by_name(name: &str) -> Option<&'static [u8]> {
+pub fn get_app_data_by_name<'a>(name: impl Into<&'a str>) -> Option<&'static [u8]> {
     let num_app = get_num_app();
+    let name = name.into();
     (0..num_app)
         .find(|&i| APP_NAMES[i] == name)
         .map(get_app_data)

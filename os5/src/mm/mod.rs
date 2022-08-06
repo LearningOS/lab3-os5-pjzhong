@@ -11,6 +11,8 @@ pub use memory_set::MemorySet;
 pub use memory_set::KERNEL_SPACE;
 pub use page_tale::get_mut;
 pub use page_tale::translated_byte_buffer;
+pub use page_tale::translated_refmut;
+pub use page_tale::translated_str;
 pub use page_tale::PageTable;
 pub use page_tale::PageTableEntry;
 
