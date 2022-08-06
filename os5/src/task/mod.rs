@@ -1,17 +1,24 @@
 mod context;
 mod manager;
 mod pid;
+mod processor;
 mod switch;
 mod task;
 
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
 pub use context::TaskContext;
+pub use manager::add_task;
+pub use processor::{current_task, run_tasks};
 pub use task::TaskStatus;
 
-use self::{switch::__switch, task::TaskControlBlock};
+use self::{
+    processor::{schedule, take_current_task},
+    switch::__switch,
+    task::TaskControlBlock,
+};
 use crate::{
-    loader::{get_app_data, get_num_app},
-    mm::{get_mut, MapPermission, StepByOne, VPNRange, VirtAddr},
+    loader::{get_app_data, get_app_data_by_name, get_num_app},
+    mm::{get_mut, MapPermission, VPNRange, VirtAddr},
     sync::UPSafeCell,
     syscall::TaskInfo,
     timer::get_time_ms,
@@ -37,8 +44,20 @@ fn run_next_task() {
 }
 
 pub fn suspend_current_and_run_next() {
-    mark_current_suspended();
-    run_next_task();
+    //There must be an application running.
+    let task = take_current_task().unwrap();
+
+    // --- access current TCB exclusively
+    let mut task_inner = task.inner_exclusive_access();
+    let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
+    // Change status to Ready
+    task_inner.task_status = TaskStatus::Ready;
+    drop(task_inner);
+
+    // push back to ready queue.
+    add_task(task);
+    // jump to scheduling cycle
+    schedule(task_cx_ptr);
 }
 
 pub fn exit_current_and_run_next() {
@@ -53,7 +72,9 @@ pub fn run_first_task() {
 pub fn reocrd_sys_call(sys_call_id: usize) {
     let mut manager = TASK_MANAGER.inner.exclusive_access();
     let current = manager.current_task;
-    manager.tasks[current].syscall_times[sys_call_id] += 1;
+    manager.tasks[current]
+        .inner_exclusive_access()
+        .syscall_times[sys_call_id] += 1;
 }
 
 pub fn get_task_info(ti: *mut TaskInfo) {
@@ -64,7 +85,7 @@ pub fn get_task_info(ti: *mut TaskInfo) {
 
     if let Some(ti) = get_mut(current_user_token(), ti) {
         let mamger = TASK_MANAGER.inner.exclusive_access();
-        let current = &mamger.tasks[mamger.current_task];
+        let current = &mamger.tasks[mamger.current_task].inner_exclusive_access();
         ti.status = current.task_status;
         ti.time = get_time_ms() - current.time;
         ti.syscall_times = current.syscall_times.clone()
@@ -75,26 +96,30 @@ impl TaskManager {
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        inner.tasks[current].task_status = TaskStatus::Ready;
+        inner.tasks[current].inner_exclusive_access().task_status = TaskStatus::Ready;
     }
 
     fn mark_current_exited(&self) {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        inner.tasks[current].task_status = TaskStatus::Exited;
+        inner.tasks[current].inner_exclusive_access().task_status = TaskStatus::Exited;
     }
 
     fn run_next_task(&self) {
         if let Some(next) = self.find_next_taks() {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
-            inner.tasks[next].task_status = TaskStatus::Running;
-            if inner.tasks[next].time == 0 {
-                inner.tasks[next].time = get_time_ms();
+            inner.tasks[next].inner_exclusive_access().task_status = TaskStatus::Running;
+            let mut next_task_inner = &mut inner.tasks[next].inner_exclusive_access();
+            next_task_inner = TaskStatus::Running;
+            if inner.tasks[next].inner_exclusive_access().time == 0 {
+                inner.tasks[next].inner_exclusive_access().time = get_time_ms();
             }
             inner.current_task = next;
-            let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
-            let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
+            let current_task_cx_ptr =
+                &mut inner.tasks[current].inner_exclusive_access().task_cx as *mut TaskContext;
+            let next_task_cx_ptr =
+                &inner.tasks[next].inner_exclusive_access().task_cx as *const TaskContext;
             drop(inner);
             unsafe {
                 __switch(current_task_cx_ptr, next_task_cx_ptr);
@@ -109,15 +134,16 @@ impl TaskManager {
         let current = inner.current_task;
         (current + 1..current + self.num_app + 1)
             .map(|id| id % self.num_app)
-            .find(|id| inner.tasks[*id].task_status == TaskStatus::Ready)
+            .find(|id| inner.tasks[*id].inner_exclusive_access().task_status == TaskStatus::Ready)
     }
 
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
-        let task0 = &mut inner.tasks[0];
+        let task0_inner = &mut inner.tasks[0].inner_exclusive_access();
         // task0.time = get_time_ms();
-        task0.task_status = TaskStatus::Running;
-        let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
+        task0_inner.task_status = TaskStatus::Running;
+        let next_task_cx_ptr = &task0_inner.task_cx as *const TaskContext;
+        drop(task0_inner);
         drop(inner);
         let mut unused = TaskContext::zero_init();
         unsafe { __switch(&mut unused as *mut _, next_task_cx_ptr) }
@@ -155,7 +181,7 @@ lazy_static! {
         println!("num_app = {}", num_app);
         let mut tasks: Vec<TaskControlBlock> = Vec::new();
         for i in 0..num_app {
-            tasks.push(TaskControlBlock::new(get_app_data(i), i))
+            tasks.push(TaskControlBlock::new(get_app_data(i)))
         }
         TaskManager {
             num_app,
@@ -183,7 +209,9 @@ pub fn do_sys_mmap(start: usize, len: usize, port: usize) -> isize {
 
     let mut inner = TASK_MANAGER.inner.exclusive_access();
     let current_task = inner.current_task;
-    let memory_set = &mut inner.tasks[current_task].memory_set;
+    let memory_set = &mut inner.tasks[current_task]
+        .inner_exclusive_access()
+        .memory_set;
 
     for i in VPNRange::new(start_va.into(), end_va) {
         if let Some(pte) = memory_set.translate(i) {
@@ -216,7 +244,9 @@ pub fn do_sys_munmap(start: usize, len: usize) -> isize {
     }
     let mut inner = TASK_MANAGER.inner.exclusive_access();
     let current_task = inner.current_task;
-    let memory_set = &mut inner.tasks[current_task].memory_set;
+    let memory_set = &mut inner.tasks[current_task]
+        .inner_exclusive_access()
+        .memory_set;
 
     let end_va = VirtAddr::from(start + len).ceil();
 
@@ -234,4 +264,14 @@ pub fn do_sys_munmap(start: usize, len: usize) -> isize {
     }
 
     0
+}
+
+lazy_static! {
+    pub static ref INITPROC: Arc<TaskControlBlock> = Arc::new(TaskControlBlock::new(
+        get_app_data_by_name("initproc").unwrap()
+    ));
+}
+
+pub fn add_initproc() {
+    add_task(INITPROC.clone())
 }

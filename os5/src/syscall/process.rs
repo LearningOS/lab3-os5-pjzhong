@@ -1,5 +1,7 @@
 use crate::config::MAX_SYSCALL_NUM;
 use crate::mm::get_mut;
+use crate::task::add_task;
+use crate::task::current_task;
 use crate::task::current_user_token;
 use crate::task::do_sys_mmap;
 use crate::task::do_sys_munmap;
@@ -72,4 +74,18 @@ pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
 
 pub fn sys_munmap(start: usize, len: usize) -> isize {
     do_sys_munmap(start, len)
+}
+
+pub fn sys_fork() -> isize {
+    let current_task = current_task().unwrap();
+    let new_task = current_task.fork();
+    let new_pid = new_task.pid.0;
+    // modify trap context fo new_task, because it return immediately after switching
+    let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
+    // we do not have to move to next instruction since we have done it before
+    // for child process, fork return 0
+    trap_cx.x[10] = 0; // x[10] is a0 reg
+                       // add new task to sceduler
+    add_task(new_task);
+    new_pid as isize
 }

@@ -118,6 +118,15 @@ impl MapArea {
     pub fn is_exits(&self, page_num: VirtPageNum) -> bool {
         self.data_frames.contains_key(&page_num)
     }
+
+    pub fn from_another(another: &MapArea) -> Self {
+        Self {
+            vpn_range: VPNRange::new(another.vpn_range.get_start(), another.vpn_range.get_end()),
+            data_frames: BTreeMap::new(),
+            map_type: another.map_type,
+            map_perm: another.map_perm,
+        }
+    }
 }
 
 pub struct MemorySet {
@@ -331,6 +340,31 @@ impl MemorySet {
             area.unmap(&mut self.page_table);
             self.areas.remove(idx);
         }
+    }
+
+    pub fn from_existed_user(user_space: &MemorySet) -> MemorySet {
+        let mut memory_set = Self::new_bare();
+        // map trampoline
+        memory_set.map_tramploine();
+
+        for area in user_space.areas.iter() {
+            let new_area = MapArea::from_another(area);
+            memory_set.push(new_area, None);
+
+            for vpn in area.vpn_range {
+                if let (Some(src_ppn), Some(dst_ppn)) =
+                    (user_space.translate(vpn), memory_set.translate(vpn))
+                {
+                    let src_ppn = src_ppn.ppn();
+                    let dst_ppn = dst_ppn.ppn();
+                    dst_ppn
+                        .get_bytes_array()
+                        .copy_from_slice(&src_ppn.get_bytes_array());
+                }
+            }
+        }
+
+        memory_set
     }
 }
 
