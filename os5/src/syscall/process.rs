@@ -1,3 +1,5 @@
+use alloc::sync::Arc;
+
 use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::get_app_data_by_name;
 use crate::mm::get_mut;
@@ -89,5 +91,52 @@ pub fn sys_exec(path: *const u8) -> isize {
         0
     } else {
         -1
+    }
+}
+
+pub fn sys_spawn(path: *const u8) -> isize {
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    if let (Some(task), Some(data)) = (current_task(), get_app_data_by_name(path.as_str())) {
+        let new_task = task.spawn(data);
+        add_task(new_task);
+        0
+    } else {
+        -1
+    }
+}
+
+/// If there is not a child process whose pid is same as given, return -1.
+/// Else if there is a child process but it is still running, return -2.
+pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
+    let curr_task = current_task().unwrap();
+    let mut curr_task_inner = curr_task.inner_exclusive_access();
+
+    if curr_task_inner
+        .children
+        .iter()
+        .find(|p| pid == -1 || pid as usize == p.get_pid())
+        .is_none()
+    {
+        return -1;
+    }
+
+    let pair = curr_task_inner.children.iter().enumerate().find(|(_, p)| {
+        p.inner_exclusive_access().is_zombie() && (pid == -1 || pid as usize == p.get_pid())
+    });
+
+    if let Some((idx, _)) = pair {
+        let child = curr_task_inner.children.remove(idx);
+        // confirm that child will de deallocated after removing from child list
+        assert_eq!(Arc::strong_count(&child), 1);
+        let found_pid = child.get_pid();
+
+        let exit_code = child.inner_exclusive_access().exit_code;
+        if let Some(ptr) = translated_refmut(curr_task_inner.memory_set.token(), exit_code_ptr) {
+            *ptr = exit_code;
+        }
+        found_pid as isize
+    } else {
+        -2
     }
 }
