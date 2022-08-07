@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use lazy_static::lazy_static;
 
-use crate::{mm::translated_refmut, sync::UPSafeCell, trap::TrapContext};
+use crate::{sync::UPSafeCell, timer::get_time_ms, trap::TrapContext};
 
 use super::{
     manager::fetch_task, switch::__switch, task::TaskControlBlock, TaskContext, TaskStatus,
@@ -66,6 +66,9 @@ pub fn run_tasks() {
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            if task_inner.time == 0 {
+                task_inner.time = get_time_ms();
+            }
             drop(task_inner);
             processor.current = Some(task);
             drop(processor);

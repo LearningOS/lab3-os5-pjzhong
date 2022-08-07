@@ -17,7 +17,8 @@ mod context;
 use crate::config::{TRAMPOLINE, TRAP_CONTEXT};
 use crate::syscall::syscall;
 use crate::task::{
-    current_trap_cx, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
+    current_task, current_trap_cx, current_user_token, exit_current_and_run_next,
+    suspend_current_and_run_next,
 };
 use crate::timer::set_next_trigger;
 use riscv::register::{
@@ -72,12 +73,15 @@ pub fn trap_handler() -> ! {
         | Trap::Exception(Exception::InstructionPageFault)
         | Trap::Exception(Exception::LoadFault)
         | Trap::Exception(Exception::LoadPageFault) => {
+            let current_task = current_task().unwrap();
             println!(
-                "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:#x}, core dumped.",
+                "[kernel] {:?} in application_{:?}, bad addr = {:#x}, bad instruction = {:#x}, core dumped.",
                 scause.cause(),
+                current_task.pid.0,
                 stval,
-                current_trap_cx().sepc,
+                current_task.inner_exclusive_access().get_trap_cx().sepc,
             );
+            drop(current_task);
             // page fault exit code
             exit_current_and_run_next(-2);
         }

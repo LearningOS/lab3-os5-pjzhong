@@ -213,19 +213,3 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> Option<&'static mut T>
         .translate_va(&VirtAddr::from(va))
         .and_then(|p| p.get_mut::<T>())
 }
-
-/// 获取单个分页之内的对象
-pub fn get_mut<T>(token: usize, ptr: *mut T) -> Option<&'static mut T> {
-    let start = ptr as usize;
-    let page_table = PageTable::from_token(token);
-    let start_va = VirtAddr::from(start);
-    let end_va = VirtAddr::from(start + size_of::<T>());
-    let page_table_entry = page_table.translate(start_va.floor());
-    if let Some(page_table_entry) = page_table_entry {
-        let ppn = page_table_entry.ppn();
-        let buffers = &ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()];
-        unsafe { (buffers.as_ptr() as *mut T).as_mut() }
-    } else {
-        None
-    }
-}

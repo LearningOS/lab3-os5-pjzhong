@@ -2,7 +2,6 @@ use alloc::sync::Arc;
 
 use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::get_app_data_by_name;
-use crate::mm::get_mut;
 use crate::mm::translated_refmut;
 use crate::mm::translated_str;
 use crate::task::add_task;
@@ -69,6 +68,10 @@ pub fn sys_munmap(start: usize, len: usize) -> isize {
     do_sys_munmap(start, len)
 }
 
+pub fn sys_get_pid() -> isize {
+    current_task().map_or(-1, |task| task.pid.0 as isize)
+}
+
 pub fn sys_fork() -> isize {
     let current_task = current_task().unwrap();
     let new_task = current_task.fork();
@@ -99,8 +102,9 @@ pub fn sys_spawn(path: *const u8) -> isize {
     let path = translated_str(token, path);
     if let (Some(task), Some(data)) = (current_task(), get_app_data_by_name(path.as_str())) {
         let new_task = task.spawn(data);
+        let pid = new_task.pid.0;
         add_task(new_task);
-        0
+        pid as isize
     } else {
         -1
     }
@@ -122,7 +126,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     }
 
     let pair = curr_task_inner.children.iter().enumerate().find(|(_, p)| {
-        p.inner_exclusive_access().is_zombie() && (pid == -1 || pid as usize == p.get_pid())
+        (pid == -1 || pid as usize == p.get_pid()) && p.inner_exclusive_access().is_zombie()
     });
 
     if let Some((idx, _)) = pair {
@@ -130,10 +134,8 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
         // confirm that child will de deallocated after removing from child list
         assert_eq!(Arc::strong_count(&child), 1);
         let found_pid = child.get_pid();
-
-        let exit_code = child.inner_exclusive_access().exit_code;
-        if let Some(ptr) = translated_refmut(curr_task_inner.memory_set.token(), exit_code_ptr) {
-            *ptr = exit_code;
+        if let Some(ptr) = translated_refmut(curr_task_inner.get_user_token(), exit_code_ptr) {
+            *ptr = child.inner_exclusive_access().exit_code;
         }
         found_pid as isize
     } else {

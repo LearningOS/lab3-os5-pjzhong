@@ -16,7 +16,7 @@ pub use task::TaskStatus;
 use self::task::TaskControlBlock;
 use crate::{
     loader::get_app_data_by_name,
-    mm::{get_mut, translated_refmut, MapPermission, VPNRange, VirtAddr},
+    mm::{translated_refmut, MapPermission, VPNRange, VirtAddr},
     syscall::TaskInfo,
     timer::get_time_ms,
 };
@@ -74,11 +74,6 @@ pub fn get_task_info(ti: *mut TaskInfo) {
         ti.time = get_time_ms() - current.time;
         ti.syscall_times = current.syscall_times;
     }
-}
-
-struct TaskManagerInner {
-    tasks: Vec<TaskControlBlock>,
-    current_task: usize,
 }
 
 // YOUR JOB: 扩展内核以实现 sys_mmap 和 sys_munmap
