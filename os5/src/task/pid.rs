@@ -1,4 +1,4 @@
-use core::{iter::Map, mem::size_of};
+use core::mem::size_of;
 
 use alloc::vec::Vec;
 use lazy_static::lazy_static;
@@ -9,6 +9,7 @@ use crate::{
     sync::UPSafeCell,
 };
 
+#[derive(Debug)]
 pub struct PidHandle(pub usize);
 
 impl Drop for PidHandle {

@@ -164,7 +164,7 @@ impl MemorySet {
 
     pub fn new_kernel() -> Self {
         let mut memory_set = Self::new_bare();
-        memory_set.map_tramploine();
+        memory_set.map_trampoline();
 
         println!(".text [{:#x}, {:#x})", stext as usize, etext as usize);
         println!(".rodata [{:#x}, {:#x})", srodata as usize, erodata as usize);
@@ -228,7 +228,7 @@ impl MemorySet {
         memory_set
     }
 
-    fn map_tramploine(&mut self) {
+    fn map_trampoline(&mut self) {
         self.page_table.map(
             VirtAddr::from(TRAMPOLINE).into(),
             PhysAddr::from(strampoline as usize).into(),
@@ -238,13 +238,12 @@ impl MemorySet {
 
     pub fn from_elf(elf_data: &[u8]) -> (Self, usize, usize) {
         let mut memory_set = Self::new_bare();
-
-        memory_set.map_tramploine();
-
+        // map trampoline
+        memory_set.map_trampoline();
+        // map program headers of elf, with U flag
         let elf = xmas_elf::ElfFile::new(elf_data).unwrap();
         let elf_header = elf.header;
         let magic = elf_header.pt1.magic;
-
         assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
         let ph_count = elf_header.pt2.ph_count();
         let mut max_end_vpn = VirtPageNum(0);
@@ -264,22 +263,20 @@ impl MemorySet {
                 if ph_flags.is_execute() {
                     map_perm |= MapPermission::X;
                 }
-
                 let map_area = MapArea::new(start_va, end_va, MapType::Framed, map_perm);
                 max_end_vpn = map_area.vpn_range.get_end();
                 memory_set.push(
                     map_area,
                     Some(&elf.input[ph.offset() as usize..(ph.offset() + ph.file_size()) as usize]),
-                )
+                );
             }
         }
-
+        // map user stack with U flags
         let max_end_va: VirtAddr = max_end_vpn.into();
         let mut user_stack_bottom: usize = max_end_va.into();
         // guard page
         user_stack_bottom += PAGE_SIZE;
         let user_stack_top = user_stack_bottom + USER_STACK_SIZE;
-
         memory_set.push(
             MapArea::new(
                 user_stack_bottom.into(),
@@ -289,7 +286,7 @@ impl MemorySet {
             ),
             None,
         );
-
+        // map TrapContext
         memory_set.push(
             MapArea::new(
                 TRAP_CONTEXT.into(),
@@ -345,7 +342,7 @@ impl MemorySet {
     pub fn from_existed_user(user_space: &MemorySet) -> MemorySet {
         let mut memory_set = Self::new_bare();
         // map trampoline
-        memory_set.map_tramploine();
+        memory_set.map_trampoline();
 
         for area in user_space.areas.iter() {
             let new_area = MapArea::from_another(area);
