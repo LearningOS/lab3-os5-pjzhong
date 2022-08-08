@@ -17,7 +17,17 @@ impl TaskManager {
     }
 
     pub fn add(&mut self, task: Arc<TaskControlBlock>) {
-        self.ready_queue.push_back(task);
+        let res = self
+            .ready_queue
+            .binary_search_by_key(&task.inner_exclusive_access().pass, |task| {
+                task.inner_exclusive_access().pass
+            });
+
+        match res {
+            Ok(idx) | Err(idx) => {
+                self.ready_queue.insert(idx, task);
+            }
+        }
     }
 
     pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {

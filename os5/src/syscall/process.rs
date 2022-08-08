@@ -142,3 +142,15 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
         -2
     }
 }
+
+pub fn sys_set_priority(prio: isize) -> isize {
+    if prio <= 1 {
+        return -1;
+    }
+
+    let curr_task = current_task().unwrap();
+    let mut curr_task_inner = curr_task.inner_exclusive_access();
+    curr_task_inner.priority = prio;
+
+    prio
+}

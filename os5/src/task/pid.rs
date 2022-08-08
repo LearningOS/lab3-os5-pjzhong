@@ -1,5 +1,3 @@
-use core::mem::size_of;
-
 use alloc::vec::Vec;
 use lazy_static::lazy_static;
 
@@ -80,18 +78,6 @@ impl KernelStack {
             MapPermission::R | MapPermission::W,
         );
         KernelStack { pid: pid_handle.0 }
-    }
-
-    pub fn push_on_top<T>(&self, value: T) -> *mut T
-    where
-        T: Sized,
-    {
-        let kernel_stack_top = self.get_top();
-        let ptr_mut = (kernel_stack_top - size_of::<T>()) as *mut T;
-        unsafe {
-            *ptr_mut = value;
-        }
-        ptr_mut
     }
 
     pub fn get_top(&self) -> usize {

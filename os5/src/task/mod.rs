@@ -5,7 +5,7 @@ mod processor;
 mod switch;
 mod task;
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::sync::Arc;
 pub use context::TaskContext;
 pub use manager::add_task;
 pub use processor::{

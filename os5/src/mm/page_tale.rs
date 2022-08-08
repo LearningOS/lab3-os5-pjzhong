@@ -1,4 +1,3 @@
-use _core::mem::size_of;
 use alloc::vec::Vec;
 use alloc::{string::String, vec};
 use bitflags::*;
@@ -139,7 +138,7 @@ impl PageTable {
 
     pub fn from_token(satp: usize) -> Self {
         Self {
-            root_ppn: PhysPageNum::from(satp & (1usize << 44) - 1),
+            root_ppn: PhysPageNum::from(satp & ((1usize << 44) - 1)),
             frames: Vec::new(),
         }
     }
